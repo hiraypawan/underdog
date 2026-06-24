@@ -97,11 +97,11 @@ class StrategyManager {
     const bodyRatio = liveBody / barRange;
     const deltaAligned = liveBar.volumeDelta * prevBar.volumeDelta > 0;
 
-    const minExpansion = Math.max(1.8, this.config.Momentum?.MomMultiplier || 1.8);
+    const minExpansion = Math.max(1.4, this.config.Momentum?.MomMultiplier || 1.4);
     if (expansion < minExpansion) return { signal: false };
-    if (bodyRatio < 0.5) return { signal: false };
+    if (bodyRatio < 0.4) return { signal: false };
 
-    if (barRange < atr * 0.5) return { signal: false };
+    if (barRange < atr * 0.3) return { signal: false };
 
     const direction = liveBar.close > liveBar.open ? 'BUY' : 'SELL';
     let score = expansion / minExpansion;
@@ -110,10 +110,10 @@ class StrategyManager {
     if (liveBar.volumeDelta > 0 && direction === 'BUY') score *= 1.2;
     if (liveBar.volumeDelta < 0 && direction === 'SELL') score *= 1.2;
 
-    if (obi > 0.2 && direction === 'BUY') score *= 1.5;
-    if (obi < -0.2 && direction === 'SELL') score *= 1.5;
-    if (obi < -0.25 && direction === 'BUY') return { signal: false };
-    if (obi > 0.25 && direction === 'SELL') return { signal: false };
+    if (obi > 0.15 && direction === 'BUY') score *= 1.4;
+    if (obi < -0.15 && direction === 'SELL') score *= 1.4;
+    if (obi < -0.3 && direction === 'BUY') return { signal: false };
+    if (obi > 0.3 && direction === 'SELL') return { signal: false };
 
     return { signal: true, direction, tag: 'MOM', score, meta: { expansion: expansion.toFixed(2), bodyRatio: bodyRatio.toFixed(3) } };
   }
@@ -122,10 +122,10 @@ class StrategyManager {
     const barRange = liveBar.high - liveBar.low;
     if (barRange === 0 || atr === 0) return { signal: false };
 
-    const wickRatio = 0.65;
+    const wickRatio = 0.55;
     const bodyRatio = Math.abs(liveBar.close - liveBar.open) / barRange;
-    if (bodyRatio > 0.3) return { signal: false };
-    if (barRange < atr * 0.4) return { signal: false };
+    if (bodyRatio > 0.35) return { signal: false };
+    if (barRange < atr * 0.25) return { signal: false };
 
     if (liveBar.low < localRangeLow && liveBar.close > liveBar.open) {
       const lowerWick = Math.min(liveBar.open, liveBar.close) - liveBar.low;
@@ -134,8 +134,8 @@ class StrategyManager {
 
       let score = wr / wickRatio;
       if (liveBar.volumeDelta > 0) score *= 1.3;
-      if (obi > 0.2) score *= 1.5;
-      if (obi < -0.25) return { signal: false };
+      if (obi > 0.15) score *= 1.4;
+      if (obi < -0.3) return { signal: false };
       return { signal: true, direction: 'BUY', tag: 'TRAP', score, meta: { wickRatio: wr.toFixed(3), delta: liveBar.volumeDelta } };
     }
 
@@ -146,8 +146,8 @@ class StrategyManager {
 
       let score = wr / wickRatio;
       if (liveBar.volumeDelta < 0) score *= 1.3;
-      if (obi < -0.2) score *= 1.5;
-      if (obi > 0.25) return { signal: false };
+      if (obi < -0.15) score *= 1.4;
+      if (obi > 0.3) return { signal: false };
       return { signal: true, direction: 'SELL', tag: 'TRAP', score, meta: { wickRatio: wr.toFixed(3), delta: liveBar.volumeDelta } };
     }
     return { signal: false };
@@ -156,16 +156,16 @@ class StrategyManager {
   evaluateWickThief(liveBar, currentATR, volumeDelta, obi) {
     if (currentATR === 0) return { signal: false };
 
-    const wickMult = 0.6;
+    const wickMult = 0.5;
     const threshold = currentATR * wickMult;
 
     const barRange = liveBar.high - liveBar.low;
     if (barRange === 0) return { signal: false };
 
     const bodyRatio = Math.abs(liveBar.close - liveBar.open) / barRange;
-    if (bodyRatio > 0.35) return { signal: false };
+    if (bodyRatio > 0.4) return { signal: false };
 
-    if (barRange < currentATR * 0.4) return { signal: false };
+    if (barRange < currentATR * 0.25) return { signal: false };
 
     const lowerWick = Math.min(liveBar.open, liveBar.close) - liveBar.low;
     const upperWick = liveBar.high - Math.max(liveBar.open, liveBar.close);
@@ -173,16 +173,16 @@ class StrategyManager {
     if (lowerWick > threshold && liveBar.close > liveBar.open) {
       let score = lowerWick / threshold;
       if (volumeDelta > 0) score *= 1.3;
-      if (obi > 0.15) score *= 1.4;
-      if (obi < -0.2) return { signal: false };
+      if (obi > 0.1) score *= 1.3;
+      if (obi < -0.25) return { signal: false };
       return { signal: true, direction: 'BUY', tag: 'WICK', score, meta: { wickSize: lowerWick.toFixed(4), threshold: threshold.toFixed(4), delta: volumeDelta } };
     }
 
     if (upperWick > threshold && liveBar.close < liveBar.open) {
       let score = upperWick / threshold;
       if (volumeDelta < 0) score *= 1.3;
-      if (obi < -0.15) score *= 1.4;
-      if (obi > 0.2) return { signal: false };
+      if (obi < -0.1) score *= 1.3;
+      if (obi > 0.25) return { signal: false };
       return { signal: true, direction: 'SELL', tag: 'WICK', score, meta: { wickSize: upperWick.toFixed(4), threshold: threshold.toFixed(4), delta: volumeDelta } };
     }
     return { signal: false };
@@ -190,7 +190,7 @@ class StrategyManager {
 
   evaluateCompression(barsCluster, currentAsk, currentBid, coilHigh, coilLow, obi, atr) {
     const coilBars = this.config.Compression?.CompCoilBars || 5;
-    const compRatio = 1.1;
+    const compRatio = 1.2;
 
     if (!barsCluster || barsCluster.length < coilBars || atr === 0) {
       return { signal: false };
@@ -205,7 +205,7 @@ class StrategyManager {
     const avgSize = cumulativeSize / evalBars.length;
     if (avgSize === 0) return { signal: false };
 
-    if (avgSize > atr * 0.6) return { signal: false };
+    if (avgSize > atr * 0.8) return { signal: false };
 
     let isCoiled = true;
     for (let i = 0; i < evalBars.length; i++) {
@@ -225,15 +225,15 @@ class StrategyManager {
 
     if (currentAsk >= coilHighLocal + buffer) {
       let score = (currentAsk - coilHighLocal) / buffer;
-      if (obi > 0.15) score *= 1.5;
-      if (obi < -0.2) return { signal: false };
+      if (obi > 0.1) score *= 1.4;
+      if (obi < -0.25) return { signal: false };
       return { signal: true, direction: 'BUY', tag: 'COMP', score, meta: { coilHigh: coilHighLocal, breakout: currentAsk, buffer: buffer.toFixed(2) } };
     }
 
     if (currentBid <= coilLowLocal - buffer) {
       let score = (coilLowLocal - currentBid) / buffer;
-      if (obi < -0.15) score *= 1.5;
-      if (obi > 0.2) return { signal: false };
+      if (obi < -0.1) score *= 1.4;
+      if (obi > 0.25) return { signal: false };
       return { signal: true, direction: 'SELL', tag: 'COMP', score, meta: { coilLow: coilLowLocal, breakout: currentBid, buffer: buffer.toFixed(2) } };
     }
 
@@ -246,20 +246,20 @@ class StrategyManager {
     const barRange = liveBar.high - liveBar.low;
     if (barRange === 0) return { signal: false };
 
-    if (barRange < atr * 0.5) return { signal: false };
+    if (barRange < atr * 0.3) return { signal: false };
 
     const deltaShift = liveBar.volumeDelta - prevBar.volumeDelta;
     const priceShift = liveBar.close - prevBar.close;
     const bodyRatio = Math.abs(liveBar.close - liveBar.open) / barRange;
 
-    if (bodyRatio < 0.4) return { signal: false };
+    if (bodyRatio < 0.3) return { signal: false };
 
-    if (deltaShift > atr * 0.5 && priceShift > 0 && obi > 0.3 && bodyRatio > 0.5) {
+    if (deltaShift > atr * 0.3 && priceShift > 0 && obi > 0.2 && bodyRatio > 0.4) {
       let score = (deltaShift / atr) * 2 + obi + bodyRatio;
       return { signal: true, direction: 'BUY', tag: 'FLOW', score, meta: { deltaShift: deltaShift.toFixed(2), obi: obi.toFixed(3), bodyRatio: bodyRatio.toFixed(3) } };
     }
 
-    if (deltaShift < -atr * 0.5 && priceShift < 0 && obi < -0.3 && bodyRatio > 0.5) {
+    if (deltaShift < -atr * 0.3 && priceShift < 0 && obi < -0.2 && bodyRatio > 0.4) {
       let score = Math.abs(deltaShift / atr) * 2 + Math.abs(obi) + bodyRatio;
       return { signal: true, direction: 'SELL', tag: 'FLOW', score, meta: { deltaShift: deltaShift.toFixed(2), obi: obi.toFixed(3), bodyRatio: bodyRatio.toFixed(3) } };
     }

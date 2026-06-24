@@ -204,7 +204,10 @@ class TradeManager {
 
     const now = Date.now();
 
-    if (this._pauseUntil[symbol] && now < this._pauseUntil[symbol]) return;
+    if (this._pauseUntil[symbol] && now < this._pauseUntil[symbol]) {
+      console.log(`[TRADE_MANAGER] PAUSED ${symbol} until ${new Date(this._pauseUntil[symbol]).toLocaleTimeString()}`);
+      return;
+    }
 
     const liveBar = this.candleFactory.getLiveBar(symbol);
     const prevBar = this.candleFactory.getPreviousBar(symbol);
@@ -226,55 +229,31 @@ class TradeManager {
 
     if (this.lastSignalTime[symbol] && (now - this.lastSignalTime[symbol]) < 30000) return;
 
-    if (signal.score < 2.0) return;
+    if (signal.score < 1.3) return;
 
-    const m15Bars = this.candleFactory.getRecentBars(symbol, 5, 'M15');
+    const m15Bars = this.candleFactory.getRecentBars(symbol, 20, 'M15');
     const m15Live = this.candleFactory.getLiveBar(symbol, 'M15');
-    const m15ToCheck = [...(m15Bars || [])];
-    if (m15Live) m15ToCheck.push(m15Live);
+    const m15All = [...(m15Bars || [])];
+    if (m15Live) m15All.push(m15Live);
 
-    if (m15ToCheck.length < 3) return;
+    if (m15All.length >= 3) {
+      const last3 = m15All.slice(-3);
+      let bullish = 0;
+      let bearish = 0;
+      for (const bar of last3) {
+        if (bar.close > bar.open) bullish++;
+        else if (bar.close < bar.open) bearish++;
+      }
+      const trend = bullish >= 2 ? 'BUY' : bearish >= 2 ? 'SELL' : 'NEUTRAL';
+      if (trend !== 'NEUTRAL' && signal.direction !== trend) return;
 
-    const last3 = m15ToCheck.slice(-3);
-    let bullish = 0;
-    let bearish = 0;
-    let m15Closes = [];
-    let m15Opens = [];
-
-    for (const bar of last3) {
-      m15Closes.push(bar.close);
-      m15Opens.push(bar.open);
-      if (bar.close > bar.open) bullish++;
-      else if (bar.close < bar.open) bearish++;
-    }
-
-    const ema8 = m15Closes.slice(-8).reduce((s, v) => s + v, 0) / Math.min(m15Closes.length, 8);
-    const ema21 = m15Closes.reduce((s, v) => s + v, 0) / m15Closes.length;
-
-    let m15Trend = 'NEUTRAL';
-    if (bullish >= 2 && ema8 > ema21) m15Trend = 'BUY';
-    else if (bearish >= 2 && ema8 < ema21) m15Trend = 'SELL';
-
-    if (m15Trend === 'NEUTRAL') return;
-
-    if (signal.direction !== m15Trend) return;
-
-    if (m15Trend === 'BUY' && obi < -0.15) return;
-    if (m15Trend === 'SELL' && obi > 0.15) return;
-
-    const atrHistory = this._recentATRs[symbol];
-    atrHistory.push(atr);
-    if (atrHistory.length > 20) atrHistory.shift();
-
-    if (atrHistory.length >= 10) {
-      const avgATR = atrHistory.reduce((s, v) => s + v, 0) / atrHistory.length;
-      if (atr < avgATR * 0.8) return;
-    }
-
-    const realBars = recentBars.filter(b => (b.tickCount || 0) > 10);
-    if (realBars.length > 0) {
-      const avgVolume = realBars.reduce((sum, b) => sum + (b.volume || 0), 0) / realBars.length;
-      if (liveBar.tickCount > 100 && liveBar.volume < avgVolume * 0.5) return;
+      if (m15All.length >= 8) {
+        const closes = m15All.map(b => b.close);
+        const sma8 = closes.slice(-8).reduce((s, v) => s + v, 0) / 8;
+        const sma20 = closes.slice(-20).reduce((s, v) => s + v, 0) / Math.min(closes.length, 20);
+        if (signal.direction === 'BUY' && sma8 < sma20) return;
+        if (signal.direction === 'SELL' && sma8 > sma20) return;
+      }
     }
 
     const balance = this.db.getBalance();
@@ -284,7 +263,7 @@ class TradeManager {
     const maxRiskDollars = 5;
     const lots = Math.max(0.001, Math.round((maxRiskDollars / slDistance) * 1000) / 1000);
 
-    if (lots > 0.1) return;
+    if (lots > 0.05) return;
 
     let sl = 0;
     let tp = 0;
