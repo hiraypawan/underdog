@@ -31,7 +31,7 @@
   },
   "risk": {
     "maxRiskPercent": 1.0,
-    "dailyLossLimit": 99999,
+    "dailyLossLimit": 999999,
     "maxOpenPositions": 5,
     "consecutiveLossLimit": 99999,
     "maxDrawdownPercent": 50.0,

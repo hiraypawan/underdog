@@ -101,14 +101,7 @@ class TradeManager {
             this.db.closePosition(pos.ticket, closePrice, pnl);
             if (pnl >= 0) { this.sessionStats[symbol].wins++; } else {
               this.sessionStats[symbol].losses++;
-              this._consecutiveLosses[symbol]++;
-              if (this._consecutiveLosses[symbol] >= 3) {
-                this._pauseUntil[symbol] = Date.now() + 300000;
-                this._consecutiveLosses[symbol] = 0;
-                console.log(`[TRADE_MANAGER] PAUSE: ${symbol} — 3 consecutive losses, 5min cooldown`);
-              }
             }
-            if (pnl >= 0) this._consecutiveLosses[symbol] = 0;
             this.broadcast({
               type: 'POSITION_CLOSED', ticket: pos.ticket,
               closePrice, pnl, reason: 'STOP_LOSS',
@@ -118,15 +111,6 @@ class TradeManager {
           }).catch(() => {
             const pnl = calculatePnL(pos, prices.mid, prices.mid);
             this.db.closePosition(pos.ticket, prices.mid, pnl);
-            if (pnl < 0) {
-              this._consecutiveLosses[symbol]++;
-              if (this._consecutiveLosses[symbol] >= 3) {
-                this._pauseUntil[symbol] = Date.now() + 300000;
-                this._consecutiveLosses[symbol] = 0;
-              }
-            } else {
-              this._consecutiveLosses[symbol] = 0;
-            }
             this.broadcast({
               type: 'POSITION_CLOSED', ticket: pos.ticket,
               closePrice: prices.mid, pnl, reason: 'STOP_LOSS',
@@ -203,11 +187,6 @@ class TradeManager {
     }
 
     const now = Date.now();
-
-    if (this._pauseUntil[symbol] && now < this._pauseUntil[symbol]) {
-      console.log(`[TRADE_MANAGER] PAUSED ${symbol} until ${new Date(this._pauseUntil[symbol]).toLocaleTimeString()}`);
-      return;
-    }
 
     const liveBar = this.candleFactory.getLiveBar(symbol);
     const prevBar = this.candleFactory.getPreviousBar(symbol);
