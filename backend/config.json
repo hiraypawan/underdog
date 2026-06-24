@@ -47,28 +47,28 @@
     "Momentum": {
       "enabled": true,
       "lookback": 15,
-      "threshold": 1.2,
-      "MomMultiplier": 1.5
+      "threshold": 2.0,
+      "MomMultiplier": 1.8
     },
     "Trap": {
       "enabled": true,
       "LocalRangeLookback": 15,
-      "TrapWickRatio": 0.55
+      "TrapWickRatio": 0.65
     },
     "WickThief": {
       "enabled": true,
-      "WT_WickMultiplier": 0.5,
+      "WT_WickMultiplier": 0.6,
       "minCandles": 3
     },
     "Compression": {
       "enabled": true,
       "CompCoilBars": 5,
-      "CompRatio": 1.3,
+      "CompRatio": 1.1,
       "CompBreakoutPts": 15
     },
     "FlowReversal": {
       "enabled": true,
-      "threshold": 2.0
+      "threshold": 2.5
     }
   },
   "candle": {

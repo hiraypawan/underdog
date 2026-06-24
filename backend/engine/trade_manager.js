@@ -18,6 +18,9 @@ class TradeManager {
     };
     this._closingPositions = new Set();
     this._volatilityCircuitBreaker = { BTCUSD: false, XAUUSD: false };
+    this._consecutiveLosses = { BTCUSD: 0, XAUUSD: 0 };
+    this._pauseUntil = { BTCUSD: 0, XAUUSD: 0 };
+    this._recentATRs = { BTCUSD: [], XAUUSD: [] };
   }
 
   start() {
@@ -96,7 +99,16 @@ class TradeManager {
             const closePrice = (result && result.status === 'SUCCESS' && result.closePrice > 0) ? result.closePrice : prices.mid;
             const pnl = calculatePnL(pos, closePrice, closePrice);
             this.db.closePosition(pos.ticket, closePrice, pnl);
-            if (pnl >= 0) { this.sessionStats[symbol].wins++; } else { this.sessionStats[symbol].losses++; }
+            if (pnl >= 0) { this.sessionStats[symbol].wins++; } else {
+              this.sessionStats[symbol].losses++;
+              this._consecutiveLosses[symbol]++;
+              if (this._consecutiveLosses[symbol] >= 3) {
+                this._pauseUntil[symbol] = Date.now() + 300000;
+                this._consecutiveLosses[symbol] = 0;
+                console.log(`[TRADE_MANAGER] PAUSE: ${symbol} — 3 consecutive losses, 5min cooldown`);
+              }
+            }
+            if (pnl >= 0) this._consecutiveLosses[symbol] = 0;
             this.broadcast({
               type: 'POSITION_CLOSED', ticket: pos.ticket,
               closePrice, pnl, reason: 'STOP_LOSS',
@@ -106,6 +118,15 @@ class TradeManager {
           }).catch(() => {
             const pnl = calculatePnL(pos, prices.mid, prices.mid);
             this.db.closePosition(pos.ticket, prices.mid, pnl);
+            if (pnl < 0) {
+              this._consecutiveLosses[symbol]++;
+              if (this._consecutiveLosses[symbol] >= 3) {
+                this._pauseUntil[symbol] = Date.now() + 300000;
+                this._consecutiveLosses[symbol] = 0;
+              }
+            } else {
+              this._consecutiveLosses[symbol] = 0;
+            }
             this.broadcast({
               type: 'POSITION_CLOSED', ticket: pos.ticket,
               closePrice: prices.mid, pnl, reason: 'STOP_LOSS',
@@ -181,6 +202,10 @@ class TradeManager {
       this.broadcast({ type: 'VOLATILITY_BREAKER', symbol, activated: false, score: volScore });
     }
 
+    const now = Date.now();
+
+    if (this._pauseUntil[symbol] && now < this._pauseUntil[symbol]) return;
+
     const liveBar = this.candleFactory.getLiveBar(symbol);
     const prevBar = this.candleFactory.getPreviousBar(symbol);
     const atr = this.candleFactory.getATR(symbol);
@@ -191,7 +216,7 @@ class TradeManager {
 
     if (atr < 10) return;
 
-    const recentBars = this.candleFactory.getRecentBars(symbol, 10);
+    const recentBars = this.candleFactory.getRecentBars(symbol, 20);
     this.strategyManager.setRecentBars(symbol, recentBars);
 
     const signal = this.strategyManager.evaluateAll(symbol, liveBar, prevBar, atr, localRange, prices.bid, prices.ask, obi);
@@ -199,34 +224,57 @@ class TradeManager {
 
     this.sessionStats[symbol].signals++;
 
-    const now = Date.now();
     if (this.lastSignalTime[symbol] && (now - this.lastSignalTime[symbol]) < 30000) return;
 
-    if (signal.score < 1.2) return;
+    if (signal.score < 2.0) return;
 
-    const m15Bars = this.candleFactory.getRecentBars(symbol, 3, 'M15');
+    const m15Bars = this.candleFactory.getRecentBars(symbol, 5, 'M15');
     const m15Live = this.candleFactory.getLiveBar(symbol, 'M15');
     const m15ToCheck = [...(m15Bars || [])];
     if (m15Live) m15ToCheck.push(m15Live);
-    if (m15ToCheck.length >= 2) {
-      let bullish = 0;
-      let bearish = 0;
-      for (const bar of m15ToCheck.slice(-3)) {
-        if (bar.close > bar.open) bullish++;
-        else if (bar.close < bar.open) bearish++;
-      }
-      const trend = bullish > bearish ? 'BUY' : bearish > bullish ? 'SELL' : 'NEUTRAL';
-      if (trend !== 'NEUTRAL' && signal.direction !== trend) {
-        return;
-      }
+
+    if (m15ToCheck.length < 3) return;
+
+    const last3 = m15ToCheck.slice(-3);
+    let bullish = 0;
+    let bearish = 0;
+    let m15Closes = [];
+    let m15Opens = [];
+
+    for (const bar of last3) {
+      m15Closes.push(bar.close);
+      m15Opens.push(bar.open);
+      if (bar.close > bar.open) bullish++;
+      else if (bar.close < bar.open) bearish++;
+    }
+
+    const ema8 = m15Closes.slice(-8).reduce((s, v) => s + v, 0) / Math.min(m15Closes.length, 8);
+    const ema21 = m15Closes.reduce((s, v) => s + v, 0) / m15Closes.length;
+
+    let m15Trend = 'NEUTRAL';
+    if (bullish >= 2 && ema8 > ema21) m15Trend = 'BUY';
+    else if (bearish >= 2 && ema8 < ema21) m15Trend = 'SELL';
+
+    if (m15Trend === 'NEUTRAL') return;
+
+    if (signal.direction !== m15Trend) return;
+
+    if (m15Trend === 'BUY' && obi < -0.15) return;
+    if (m15Trend === 'SELL' && obi > 0.15) return;
+
+    const atrHistory = this._recentATRs[symbol];
+    atrHistory.push(atr);
+    if (atrHistory.length > 20) atrHistory.shift();
+
+    if (atrHistory.length >= 10) {
+      const avgATR = atrHistory.reduce((s, v) => s + v, 0) / atrHistory.length;
+      if (atr < avgATR * 0.8) return;
     }
 
     const realBars = recentBars.filter(b => (b.tickCount || 0) > 10);
     if (realBars.length > 0) {
       const avgVolume = realBars.reduce((sum, b) => sum + (b.volume || 0), 0) / realBars.length;
-      if (liveBar.tickCount > 50 && liveBar.volume < avgVolume * 0.3) {
-        return;
-      }
+      if (liveBar.tickCount > 100 && liveBar.volume < avgVolume * 0.5) return;
     }
 
     const balance = this.db.getBalance();
@@ -235,6 +283,8 @@ class TradeManager {
     const slDistance = slPips * pipSize;
     const maxRiskDollars = 5;
     const lots = Math.max(0.001, Math.round((maxRiskDollars / slDistance) * 1000) / 1000);
+
+    if (lots > 0.1) return;
 
     let sl = 0;
     let tp = 0;
@@ -259,11 +309,11 @@ class TradeManager {
       pointValue: pipSize
     };
 
-    console.log(`[TRADE_MANAGER] SIGNAL: ${signal.direction} ${symbol} | Tag: ${signal.tag} | Score: ${signal.score.toFixed(2)} | OBI: ${obi.toFixed(3)} | ATR: ${atr.toFixed(2)} | Lots: ${lots} | Risk: $${(lots * slDistance).toFixed(2)}`);
+    console.log(`[TRADE_MANAGER] SIGNAL: ${signal.direction} ${symbol} | Tag: ${signal.tag} | Score: ${signal.score.toFixed(2)} | OBI: ${obi.toFixed(3)} | ATR: ${atr.toFixed(2)} | M15: ${m15Trend} | Lots: ${lots} | Risk: $${(lots * slDistance).toFixed(2)}`);
 
     this.oms.executeOrder(orderParams).then(result => {
       if (result.status === 'SUCCESS') {
-        this.strategyManager.setCooldown(symbol, signal.tag, 60000);
+        this.strategyManager.setCooldown(symbol, signal.tag, 120000);
         this.sessionStats[symbol].trades++;
         this.broadcast({
           type: 'TRADE_OPENED',
