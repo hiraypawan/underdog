@@ -1,9 +1,8 @@
 {
   "version": 2,
   "name": "underdog-quant-terminal",
-  "rootDirectory": "frontend",
-  "buildCommand": "npm run build",
   "installCommand": "npm install",
+  "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite"
 }
